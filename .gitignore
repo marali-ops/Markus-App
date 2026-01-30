@@ -1,0 +1,5 @@
+# Streamlit secrets
+.streamlit/
+# Python Cache
+__pycache__/
+.venv/
