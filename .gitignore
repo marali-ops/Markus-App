@@ -1,5 +1,18 @@
-# Streamlit secrets
-.streamlit/
-# Python Cache
+# Python-Müll (wird automatisch generiert)
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Lokale Umgebungen (die "schweren" Ordner)
 .venv/
+venv/
+env/
+
+# STREAMLIT GEHEIMNISSE (Der wichtigste Punkt!)
+# Wenn du lokal eine secrets.toml hast, darf die NIEMALS hochgeladen werden.
+.streamlit/secrets.toml
+
+# Betriebssystem-Reste
+.DS_Store
+Thumbs.db
