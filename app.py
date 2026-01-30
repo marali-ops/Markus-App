@@ -78,9 +78,12 @@ if st.button("Marktanalyse starten"):
             # Kleine Vorhersage-Kurve
             weeks = [0, 4, 8, 12]
             p_start = res['aktueller_preis_schaetzung']
+
+            # Hier definieren wir future_p
             future_p = [p_start * (1 + (res['trend_faktor'] * (w/4))) for w in weeks]
-            
-            fig = go.Figure(go.Scatter(x=weeks, y=future_prices, line=dict(color='red')))
+
+            # Hier nutzen wir future_p (vorher stand hier fälschlicherweise future_prices)
+            fig = go.Figure(go.Scatter(x=weeks, y=future_p, line=dict(color='red')))
             fig.update_layout(title="Trend 3 Monate", height=200, margin=dict(l=0,r=0,t=30,b=0))
             st.plotly_chart(fig, use_container_width=True)
 
