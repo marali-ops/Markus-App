@@ -49,7 +49,7 @@ def get_headlines(product):
         return []
 
 # --- UI ---
-st.title("📈 Oaschbabier & ois wo ma a g'scheit Obacht gem muass")
+st.title("📈 Oaschbabier & ois wo ma a g'scheit Obacht gem muass G'scheitschauer")
 st.markdown("### *Zentrale für Haushalts-Controlling & Sensible Konsumgüter*")
 st.divider()
 
