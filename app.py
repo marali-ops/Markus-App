@@ -3,77 +3,88 @@ import requests
 from openai import OpenAI
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
+import json
 
 # --- SETUP ---
-st.set_page_config(page_title="AI Price Predictor PRO", layout="wide")
+st.set_page_config(page_title="AI Price Guru", layout="wide", page_icon="🤖")
 
-# OpenAI Client initialisieren
+# OpenAI Client (holt Key aus Streamlit Secrets)
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# --- KI FUNKTIONEN ---
-def ask_ai_for_price_logic(product_name, news_snippets):
-    """
-    Fragt die KI nach einer Einschätzung basierend auf den News.
-    """
+# --- KI FUNKTION: ANALYSE & EMPFEHLUNG ---
+def get_ai_market_analysis(product, news_snippets):
     prompt = f"""
-    Du bist ein Experte für den deutschen Einzelhandel. 
-    Produkt: {product_name}
-    Aktuelle News-Schlagzeilen: {news_snippets}
+    Du bist ein Marktanalyst für deutsche Verbraucherpreise. 
+    Produkt: {product}
+    Aktuelle News: {news_snippets}
     
-    Aufgabe:
-    1. Schätze den aktuellen Durchschnittspreis in Deutschland (Euro).
-    2. Bestimme einen 'Impact-Faktor' für die nächsten 3 Monate (z.B. 0.05 für +5%).
-    3. Gib eine kurze Begründung.
-    
-    Antworte NUR im JSON Format:
-    {{"preis": 1.29, "impact": 0.05, "grund": "Text"}}
+    Analysiere die Lage und gib folgendes im JSON-Format zurück:
+    - aktueller_preis_schaetzung: (Ein realistischer Durchschnittspreis in Euro)
+    - trend_faktor: (Prozentuale Änderung pro Monat, z.B. 0.05 für +5%)
+    - grund: (Kurze Zusammenfassung der News-Lage)
+    - empfehlung: (Eins von: 'Jetzt kaufen', 'Warten', 'Beobachten')
+    - vorrat_nötig: (Ja/Nein)
+
+    Nur das JSON ausgeben!
     """
     
     response = client.chat.completions.create(
-        model="gpt-3.5-turbo", # oder gpt-4o für bessere Ergebnisse
-        messages=[{"role": "system", "content": "Du bist ein Preis-Analyst."},
-                  {"role": "user", "content": prompt}]
+        model="gpt-3.5-turbo",
+        messages=[{"role": "user", "content": prompt}],
+        response_format={ "type": "json_object" }
     )
-    return eval(response.choices[0].message.content)
+    return json.loads(response.choices[0].message.content)
 
-# --- NEWS HOLEN ---
-def fetch_news(product):
-    url = f"https://newsapi.org/v2/everything?q={product}+preise+deutschland&apiKey={st.secrets['NEWS_API_KEY']}"
-    articles = requests.get(url).json().get("articles", [])
-    return [a['title'] for a in articles[:5]]
+# --- NEWS FUNKTION ---
+def get_headlines(product):
+    api_key = st.secrets["NEWS_API_KEY"]
+    url = f"https://newsapi.org/v2/everything?q={product}+preise+deutschland&apiKey={api_key}"
+    try:
+        data = requests.get(url).json()
+        return [a['title'] for a in data.get("articles", [])[:5]]
+    except:
+        return []
 
 # --- UI ---
-st.title("🤖 KI-Preis-Experte (Powered by OpenAI)")
+st.title("🤖 AI Price Guru")
+st.markdown("Kombiniert **Live-News** mit **OpenAI**, um deine Einkaufsvorteile zu berechnen.")
 
-produkt = st.text_input("Welches Produkt möchtest du prüfen?", "Bio-Eier")
+product_input = st.text_input("Welches Produkt möchtest du analysieren?", "Butter")
 
-if st.button("Analyse starten"):
-    with st.spinner("KI liest Nachrichten und berechnet Preise..."):
-        # 1. News sammeln
-        headlines = fetch_news(produkt)
-        news_text = " | ".join(headlines)
+if st.button("Marktanalyse starten"):
+    with st.spinner("KI analysiert Nachrichtenlage..."):
+        # 1. Daten sammeln
+        news = get_headlines(product_input)
+        news_combined = " | ".join(news) if news else "Keine aktuellen News gefunden."
         
-        # 2. KI Analyse
-        analysis = ask_ai_for_price_logic(produkt, news_text)
+        # 2. KI befragen
+        res = get_ai_market_analysis(product_input, news_combined)
         
-        # --- DARSTELLUNG ---
-        col1, col2 = st.columns(2)
+        # --- ANZEIGE DER ERGEBNISSE ---
+        col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.metric("KI-geschätzter Preis", f"{analysis['preis']:.2f} €")
-            st.write(f"**Analyse:** {analysis['grund']}")
-            
-            if headlines:
-                st.write("**Berücksichtigte News:**")
-                for h in headlines:
-                    st.caption(f"• {h}")
+            st.metric("KI-Preis-Check", f"{res['aktueller_preis_schaetzung']:.2f} €")
+            st.subheader("Strategie")
+            color = "green" if res['empfehlung'] == "Jetzt kaufen" else "orange"
+            st.markdown(f"### :{color}[{res['empfehlung']}]")
 
         with col2:
-            # Prognose-Berechnung
-            weeks = list(range(13))
-            future_prices = [analysis['preis'] * (1 + (analysis['impact'] * (w/12))) for w in weeks]
+            st.info(f"**Grund:** {res['grund']}")
+            if res['vorrat_nötig'] == "Ja":
+                st.warning("⚠️ Vorratskauf empfohlen!")
+
+        with col3:
+            # Kleine Vorhersage-Kurve
+            weeks = [0, 4, 8, 12]
+            p_start = res['aktueller_preis_schaetzung']
+            future_p = [p_start * (1 + (res['trend_faktor'] * (w/4))) for w in weeks]
             
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=weeks, y=future_prices, mode='lines+markers', name="Trend"))
-            fig.update_layout(title="Prognose (Nächste 12 Wochen)", xaxis_title="Wochen", yaxis_title="Preis in €")
-            st.plotly_chart(fig)
+            fig = go.Figure(go.Scatter(x=weeks, y=future_prices, line=dict(color='red')))
+            fig.update_layout(title="Trend 3 Monate", height=200, margin=dict(l=0,r=0,t=30,b=0))
+            st.plotly_chart(fig, use_container_width=True)
+
+        if news:
+            with st.expander("Gefundene Schlagzeilen"):
+                for n in news:
+                    st.write(f"• {n}")
