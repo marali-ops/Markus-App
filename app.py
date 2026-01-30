@@ -49,7 +49,7 @@ def get_headlines(product):
         return []
 
 # --- UI ---
-st.title("📈 Strategische Preispolitik & Effizienzsteigerung")
+st.title("📈 Oaschbabier & ois wo ma a g'scheit Obacht gem muass")
 st.markdown("### *Zentrale für Haushalts-Controlling & Sensible Konsumgüter*")
 st.divider()
 
