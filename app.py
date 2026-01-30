@@ -1,118 +1,79 @@
 import streamlit as st
-import pandas as pd
 import requests
+from openai import OpenAI
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
-# --- SEITEN-LAYOUT ---
-st.set_page_config(page_title="KI Preis-Orakel", layout="wide", page_icon="🛒")
+# --- SETUP ---
+st.set_page_config(page_title="AI Price Predictor PRO", layout="wide")
 
-# --- SECRETS LADEN ---
-# Greift auf .streamlit/secrets.toml zu
-try:
-    NEWS_API_KEY = st.secrets["NEWS_API_KEY"]
-except Exception:
-    st.error("❌ NEWS_API_KEY nicht in den Secrets gefunden!")
-    st.stop()
+# OpenAI Client initialisieren
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# --- NEWS FUNKTIONEN ---
-@st.cache_data(ttl=3600)
-def fetch_market_news(query):
-    """Holt aktuelle News über die NewsAPI"""
-    url = f"https://newsapi.org/v2/everything?q={query}&language=de&sortBy=publishedAt&apiKey={NEWS_API_KEY}"
-    try:
-        response = requests.get(url)
-        data = response.json()
-        return data.get("articles", [])[:10]
-    except Exception as e:
-        st.error(f"Fehler beim Abrufen der News: {e}")
-        return []
-
-def analyze_impact(articles):
-    """Analysiert Schlagzeilen auf Preistreiber-Keywords"""
-    keywords = {
-        "steuer": 0.08, 
-        "erhöhung": 0.05, 
-        "teurer": 0.04, 
-        "knapp": 0.03, 
-        "dürre": 0.06, 
-        "streik": 0.02,
-        "energie": 0.04
-    }
-    score = 0
-    found_headlines = []
+# --- KI FUNKTIONEN ---
+def ask_ai_for_price_logic(product_name, news_snippets):
+    """
+    Fragt die KI nach einer Einschätzung basierend auf den News.
+    """
+    prompt = f"""
+    Du bist ein Experte für den deutschen Einzelhandel. 
+    Produkt: {product_name}
+    Aktuelle News-Schlagzeilen: {news_snippets}
     
-    for art in articles:
-        full_text = (art['title'] + (art['description'] or "")).lower()
-        for kw, val in keywords.items():
-            if kw in full_text:
-                score += val
-                found_headlines.append(art['title'])
-                break # Nur ein Impact pro Artikel zählen
-                
-    return score, list(set(found_headlines))
-
-# --- UI DESIGN ---
-st.title("🛒 KI-gestützte Preisprognose")
-st.markdown("Analysiert aktuelle Nachrichten auf **Preistreiber** für den deutschen Markt.")
-
-# Sidebar für Benutzereingaben
-st.sidebar.header("Produkteinstellungen")
-produkt_name = st.sidebar.selectbox("Produkt wählen", ["Vollmilch", "Butter", "Brot (Weizen)", "Eier", "Kaffee"])
-basis_preis = st.sidebar.number_input("Aktueller Preis in €", value=1.49, step=0.05)
-zeitraum_wochen = st.sidebar.slider("Prognose-Zeitraum (Wochen)", 1, 12, 8)
-
-# News abrufen basierend auf Produkt und Markt
-suche = f"{produkt_name} PREIS ODER Lebensmittelpreise ODER Agrar"
-news_articles = fetch_market_news(suche)
-impact_score, wichtige_news = analyze_impact(news_articles)
-
-# --- HAUPTBEREICH ---
-col1, col2 = st.columns([1, 1])
-
-with col1:
-    st.subheader("Gefundene Marktsignale")
-    if wichtige_news:
-        for n in wichtige_news[:4]: # Top 4 News anzeigen
-            st.warning(f"📰 {n}")
-    else:
-        st.info("Keine direkten Preistreiber in den News gefunden.")
+    Aufgabe:
+    1. Schätze den aktuellen Durchschnittspreis in Deutschland (Euro).
+    2. Bestimme einen 'Impact-Faktor' für die nächsten 3 Monate (z.B. 0.05 für +5%).
+    3. Gib eine kurze Begründung.
     
-    st.metric("Berechneter Risiko-Aufschlag", f"+{(impact_score * 100):.1f} %")
-
-# --- BERECHNUNG DER PROGNOSE ---
-dates = [datetime.now() + timedelta(weeks=i) for i in range(zeitraum_wochen + 1)]
-prices = []
-
-for i in range(len(dates)):
-    # Grund-Inflation + News-Impact über die Zeit verteilt
-    trend = 1 + (0.001 * i) # 0.1% pro Woche Basis
-    news_shift = 1 + (impact_score * (i / zeitraum_wochen))
-    prices.append(round(basis_preis * trend * news_shift, 2))
-
-# --- GRAPH ---
-with col2:
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=dates, y=prices, 
-        mode='lines+markers',
-        line=dict(color='#ff4b4b', width=4),
-        name="Preisprognose"
-    ))
-    fig.update_layout(
-        title=f"Preis-Trend für {produkt_name}",
-        xaxis_title="Datum",
-        yaxis_title="Preis in €",
-        hovermode="x unified"
+    Antworte NUR im JSON Format:
+    {{"preis": 1.29, "impact": 0.05, "grund": "Text"}}
+    """
+    
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo", # oder gpt-4o für bessere Ergebnisse
+        messages=[{"role": "system", "content": "Du bist ein Preis-Analyst."},
+                  {"role": "user", "content": prompt}]
     )
-    st.plotly_chart(fig, use_container_width=True)
+    return eval(response.choices[0].message.content)
 
-# --- ZUSAMMENFASSUNG ---
-st.divider()
-final_price = prices[-1]
-diff = ((final_price - basis_preis) / basis_preis) * 100
+# --- NEWS HOLEN ---
+def fetch_news(product):
+    url = f"https://newsapi.org/v2/everything?q={product}+preise+deutschland&apiKey={st.secrets['NEWS_API_KEY']}"
+    articles = requests.get(url).json().get("articles", [])
+    return [a['title'] for a in articles[:5]]
 
-st.subheader("Ergebnis der Analyse")
-st.write(f"Basierend auf den aktuellen Nachrichten wird der Preis für **{produkt_name}** "
-         f"in {zeitraum_wochen} Wochen voraussichtlich bei ca. **{final_price:.2f} €** liegen "
-         f"({diff:+.1f} % Veränderung).")
+# --- UI ---
+st.title("🤖 KI-Preis-Experte (Powered by OpenAI)")
+
+produkt = st.text_input("Welches Produkt möchtest du prüfen?", "Bio-Eier")
+
+if st.button("Analyse starten"):
+    with st.spinner("KI liest Nachrichten und berechnet Preise..."):
+        # 1. News sammeln
+        headlines = fetch_news(produkt)
+        news_text = " | ".join(headlines)
+        
+        # 2. KI Analyse
+        analysis = ask_ai_for_price_logic(produkt, news_text)
+        
+        # --- DARSTELLUNG ---
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric("KI-geschätzter Preis", f"{analysis['preis']:.2f} €")
+            st.write(f"**Analyse:** {analysis['grund']}")
+            
+            if headlines:
+                st.write("**Berücksichtigte News:**")
+                for h in headlines:
+                    st.caption(f"• {h}")
+
+        with col2:
+            # Prognose-Berechnung
+            weeks = list(range(13))
+            future_prices = [analysis['preis'] * (1 + (analysis['impact'] * (w/12))) for w in weeks]
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=weeks, y=future_prices, mode='lines+markers', name="Trend"))
+            fig.update_layout(title="Prognose (Nächste 12 Wochen)", xaxis_title="Wochen", yaxis_title="Preis in €")
+            st.plotly_chart(fig)
